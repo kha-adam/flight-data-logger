@@ -4,15 +4,12 @@
 #include <linux/kernel.h>
 static int __init hello_init(void)
 {
-	pr_info("Hello initialized");
+	pr_info("Hello initialized\n");
 	return 0;
 }
 static void __exit hello_exit(void)
 {
-	/* TODO: pr_info one line that proves exit ran.
-	 * This function cannot return an error.
-	 */
-	pr_info("Hello exited");
+	pr_info("Hello exited\n");
 }
 module_init(hello_init);
 module_exit(hello_exit);
