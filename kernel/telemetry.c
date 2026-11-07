@@ -28,6 +28,7 @@ static ssize_t telemetry_read(struct file *filp, char __user *buf,
 			      size_t count, loff_t *ppos)
 {
 	struct telemetry_sample sample;
+    unsigned long failed_bytes;
 	if (count < sizeof(sample)){
 		return -EINVAL;
 	}
@@ -36,7 +37,7 @@ static ssize_t telemetry_read(struct file *filp, char __user *buf,
 	sample.pressure_pa = 1000;
 	sample.temp_mc=20000;
 	sample.reserved = 0;
-	int failed_bytes = copy_to_user(buf, &sample, sizeof(sample));
+	failed_bytes = copy_to_user(buf, &sample, sizeof(sample));
 	if (failed_bytes != 0){
 		return -EFAULT;
 	}
