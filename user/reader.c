@@ -6,6 +6,7 @@
 #include <pthread.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "queue.h"
 
@@ -98,6 +99,20 @@ static void *reader_thread(void *arg)
 	return NULL;
 }
 
+static void writer_pause(void)
+{
+	const char *env = getenv("TELEMETRY_WRITER_US");
+	unsigned long us;
+	struct timespec ts;
+
+	if (env == NULL || env[0] == '\0')
+		return;
+	us = strtoul(env, NULL, 10);
+	ts.tv_sec = us / 1000000UL;
+	ts.tv_nsec = (long)(us % 1000000UL) * 1000L;
+	nanosleep(&ts, NULL);
+}
+
 static void *writer_thread(void *arg)
 {
 	struct reader_cfg *cfg = arg;
@@ -110,6 +125,7 @@ static void *writer_thread(void *arg)
 	out = fopen("samples.csv", "w");
 	if (out == NULL) {
 		perror("fopen");
+		queue_close(cfg->queue);
 		return NULL;
 	}
 	fprintf(out, "ts_ns,seq,temp_mc,pressure_pa\n");
@@ -118,12 +134,13 @@ static void *writer_thread(void *arg)
 		if (queue_pop(cfg->queue, &sample) != 0)
 			break;
 		if (have_expected && sample.seq != expected)
-			gaps++;
+			gaps += (unsigned long long)sample.seq - expected;
 		have_expected = 1;
 		expected = sample.seq + 1;
 		fprintf(out, "%llu,%u,%d,%u\n",
 			(unsigned long long)sample.ts_ns,
 			sample.seq, sample.temp_mc, sample.pressure_pa);
+		writer_pause();
 	}
 
 	fclose(out);
