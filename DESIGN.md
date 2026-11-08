@@ -103,3 +103,22 @@ Step 0 uses a throwaway `hello/` module to prove the toolchain. It is deleted on
 - `copy_from_user` and `copy_to_user` stay outside the spinlock. The new rate is stored under the lock. The timer copies it into a local variable while the lock is held and uses that local for the next delay.
 - Reset clears `dropped`, `consumed`, and `high_watermark`. It does not clear `seq` or the slots, so a reader does not see ticket numbers jump backward.
 - `produced` reported to userspace is the current `seq`: every sample the timer created, including dropped ones.
+- Counters stay still while nobody holds `/dev/telemetry` open, because `open` starts the timer and `release` stops it.
+
+## ADR-006: Two userspace threads and a bounded queue
+
+**Context.** Writing each sample to a file is slow. If the same thread reads `/dev/telemetry` and writes the file, a slow disk stall stops the reads. The kernel ring fills, new samples are dropped, and `seq` jumps.
+
+**Options.**
+
+1. **One thread.** Simple. A slow `write` blocks the next `read`, so the kernel drops samples during every disk stall.
+2. **Two threads and a bounded queue.** The reader thread only calls `read`. The writer thread only writes CSV. A full queue makes the reader wait, which is backpressure: the kernel ring then fills and drops are visible in `seq`.
+3. **An unbounded queue.** The reader never waits. A slow writer lets the queue grow without limit and the process runs out of memory.
+
+**Decision.** One reader thread and one writer thread, connected by a fixed-capacity queue of samples. The queue uses a `pthread_mutex_t` and two condition variables. Both sides are ordinary threads, so they are allowed to sleep. The kernel spinlock stays in the driver because the timer cannot sleep.
+
+**Consequences.**
+
+- `--device PATH` lets the same reader run against `/dev/telemetry` or against a FIFO, so the queue can be tested without loading the module.
+- Closing the queue wakes both sides. A pop on a closed empty queue returns an end marker so the writer can finish the file and exit.
+- Gap detection compares `seq` with the previous sample's `seq + 1`. A jump is a loss, and it is the same loss the kernel counted in `dropped` once the ring has overflowed.
