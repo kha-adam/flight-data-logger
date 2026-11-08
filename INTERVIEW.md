@@ -44,3 +44,37 @@ Taint sticks until reboot. `cat /proc/sys/kernel/tainted` prints the bitmask. `1
 **Defend this.** `printf` lives in glibc, in user space. glibc implements it by making system calls into the kernel. The kernel is not linked with glibc, and calling it would be circular. Logging is `pr_info`. Allocation, later, is `kmalloc`.
 
 The CPU does have floating-point registers. Kernel entry paths do not save them. A `float` instruction in the module would overwrite the registers of whatever process was interrupted. The kernel is built so that normal C does not emit those instructions. Sensor values in this project stay integers.
+
+## Step 1
+
+### What does `copy_to_user` return, and why does `seq` stay put when it fails?
+
+**Adam.** Return `EFAULT` because the copy failed. Do not advance the sequence, because this sample is still unprocessed.
+
+**Grade.** Pass. The value returned to the system call is `-EFAULT` (negative). Userspace then sees `read` return `-1` and `errno == EFAULT`.
+
+**Defend this.** `copy_to_user` returns how many bytes it did not copy. Zero means the program received the sample. Anything else means the program's pointer was not writable. Return `-EFAULT` and leave `telemetry_seq` unchanged, so the next `read` retries the same ticket.
+
+### Why refuse a short `read` with `-EINVAL`?
+
+**Adam.** Always return the whole sample. A piece of it would be messy.
+
+**Grade.** Pass.
+
+**Defend this.** One sample is 24 bytes. Returning fewer bytes would split one sample across two `read` calls. The driver or the program would have to remember the leftover bytes. Refusing a `count` below 24 keeps every successful `read` aligned on a whole sample.
+
+### What does `.owner = THIS_MODULE` prevent?
+
+**Adam.** Deferred until the rest of the driver makes this concrete.
+
+**Grade.** Open. Revisit before the interview.
+
+**Defend this.** `.owner` points at this module. While `read_one` has `/dev/telemetry` open, the kernel holds a reference on that module. `rmmod` then fails with "module in use." Unloading would free `telemetry_read` while the program might still be inside it.
+
+### What happens between `read()` in `read_one.c` and `telemetry_read`?
+
+**Adam.** The system call reads 24 bytes from the file and activates `.read`, which is `telemetry_read`.
+
+**Grade.** Pass. One name still belongs in the answer: the virtual file system.
+
+**Defend this.** `read(fd, &sample, 24)` in the program enters the `read` system call. The kernel's virtual file system handles it in `vfs_read`, then calls `file->f_op->read`. That pointer is `telemetry_read`. `open` is a different call, and it goes to `telemetry_open`.

@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <stdio.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -18,6 +19,8 @@ int main(void)
 	for (;;) {
 		n = read(fd, &sample, sizeof(sample));
 		if (n < 0) {
+			if (errno == EAGAIN)
+				continue;
 			perror("read");
 			return 1;
 		}
